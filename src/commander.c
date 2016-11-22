@@ -13,20 +13,36 @@ static const char *COMMANDS_ENV = "COMMANDS_PATH";
 
 static struct mg_serve_http_opts opts;
 
-struct command {
+typedef struct command {
     char *path;
     char *command;
-};
+} cmd;
 
-static void ev_handler(struct mg_connection *c, int ev, void *p) {
+static cmd **commandlist;
+
+static char *get_command(const char *path) {
+    for (int i = 0;; i++) {
+        struct command *curr = commandlist[i];
+        if (&(*curr) == NULL) {
+            break;
+        }
+        if (strcmp(curr->path, path) == 0) {
+            return curr->command;
+        }
+    }
+    return NULL;
+}
+
+static void handle_404(struct mg_connection *c, int ev, void *p) {
     if (ev == MG_EV_HTTP_REQUEST) {
         mg_http_send_error(c, 404, "404 not found");
     }
 }
 
 static void send_resp(struct mg_connection *c, int code, const char *message) {
-    mg_send_head(c, code, strlen(message),
-                 "Content-Type: application/json\r\n");
+    mg_printf(c, "%s",
+              "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: "
+              "application/json\r\n\r\n");
     mg_send_http_chunk(c, message, strlen(message));
     mg_send_http_chunk(c, "", 0);
     c->flags |= MG_F_SEND_AND_CLOSE;
@@ -34,12 +50,20 @@ static void send_resp(struct mg_connection *c, int code, const char *message) {
 
 static void handle_req(struct mg_connection *c, int ev, void *p) {
     struct http_message *hm = (struct http_message *)p;
-    printf("%s\n", hm->uri.p);
-    int ret = 0;
+
+    char *uri = malloc(sizeof(char) * hm->uri.len);
+    strncpy(uri, hm->uri.p, hm->uri.len);
+    char *cmd = get_command(uri);
+    free(uri);
+    if (!cmd) {
+        send_resp(c, 404, "{\"message\":\"unknown\"}");
+        return;
+    }
+    int ret = system(cmd);
     if (ret == 0) {
-        send_resp(c, 200, "{\"message\":\"openvpn is running\"}");
+        send_resp(c, 200, "{\"message\":\"success\"}");
     } else {
-        send_resp(c, 400, "{\"message\":\"openvpn is not running\"}");
+        send_resp(c, 400, "{\"message\":\"error\"}");
     }
 }
 
@@ -48,7 +72,7 @@ static void handle_root(struct mg_connection *c, int ev, void *p) {
     mg_serve_http(c, hm, opts);
 }
 
-char *read_file(char *path) {
+static char *read_file(char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         printf("Cannot open file\n");
@@ -78,7 +102,7 @@ int main(int argc, char **argv) {
     mg_mgr_init(&mgr, NULL);
 
     char *port = getsetenv(PORT_ENV, "8080");
-    c = mg_bind(&mgr, port, ev_handler);
+    c = mg_bind(&mgr, port, handle_404);
     if (c == NULL) {
         printf("Failed to create listener. Exiting.\n");
         return 1;
@@ -87,25 +111,19 @@ int main(int argc, char **argv) {
     char *data = read_file(commands_filepath);
     cJSON *root = cJSON_Parse(data);
     cJSON *curr = root->child;
-    void **commandarr = malloc(sizeof(void *));
+    commandlist = malloc(sizeof(cmd));
     int i = 0;
     while (curr) {
         if (i > 0) {
-            commandarr = realloc(commandarr, sizeof(void *) * (i + 1));
+            commandlist = realloc(commandlist, sizeof(cmd) * (i + 1));
         }
-        char *path = cJSON_GetObjectItem(curr, "path")->valuestring;
-        char *command = cJSON_GetObjectItem(curr, "command")->valuestring;
-        struct command *cmd = malloc(sizeof(command));
-        cmd->path = path;
-        cmd->command = command;
-        *(commandarr + i) = cmd;
-
-        printf("Registering path /%s for command: \"%s\"\n", path, command);
-        char *newpath = malloc(sizeof(char) * (strlen(path) + 1));
-        sprintf(newpath, "/%s", path);
-
-        mg_register_http_endpoint(c, newpath, handle_req);
-        free(newpath);
+        cmd *cm = malloc(sizeof(cmd));
+        cm->path = cJSON_GetObjectItem(curr, "path")->valuestring;
+        cm->command = cJSON_GetObjectItem(curr, "command")->valuestring;
+        commandlist[i++] = cm;
+        printf("Registering path %s for command: \"%s\"\n", cm->path,
+               cm->command);
+        mg_register_http_endpoint(c, cm->path, handle_req);
         curr = curr->next;
     }
 

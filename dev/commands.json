@@ -1,10 +1,10 @@
 [{
-    "path": "status",
+    "path": "/status",
     "command": "ps -e | grep openvpn"
 }, {
-    "path": "on",
+    "path": "/on",
     "command": "openvpn spencer.ovpn"
 }, {
-    "path": "off",
+    "path": "/off",
     "command": "killall openvpn"
 }]

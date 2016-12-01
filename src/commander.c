@@ -59,6 +59,7 @@ static void handle_req(struct mg_connection *c, int ev, void *p) {
         send_resp(c, 404, "{\"message\":\"unknown\"}");
         return;
     }
+    printf("Running command: \"%s\"\n", cmd);
     int ret = system(cmd);
     if (ret == 0) {
         send_resp(c, 200, "{\"message\":\"success\"}");

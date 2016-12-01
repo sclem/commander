@@ -3,8 +3,8 @@
     "command": "ps -e | grep openvpn"
 }, {
     "path": "/on",
-    "command": "openvpn spencer.ovpn"
+    "command": "./scripts/startvpn.sh"
 }, {
     "path": "/off",
-    "command": "killall openvpn"
+    "command": "./scripts/stopvpn.sh"
 }]
